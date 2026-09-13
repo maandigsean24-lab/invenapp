@@ -4,49 +4,38 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import FormInput from '../components/FormInput';
 import AppButton from '../components/AppButton';
 
-export default function RegisterScreen({ onSwitchToLogin }) {
-  const [fullName, setFullName] = useState('');
+export default function LoginScreen({ onSwitchToRegister, onLoginSuccess }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
 
-  const handleRegister = async () => {
-    if (!fullName || !email || !password || !confirmPassword) {
+  const handleLogin = async () => {
+    if (!email || !password) {
       alert('Please fill in all fields.');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      alert('Passwords do not match.');
       return;
     }
 
     const usersData = await AsyncStorage.getItem('users');
     const users = usersData ? JSON.parse(usersData) : {};
 
-    if (users[email]) {
-      alert('An account with this email already exists.');
+    const user = users[email];
+
+    if (!user) {
+      alert('No account found with this email.');
       return;
     }
 
-    const newUser = { fullName, email, password };
-    users[email] = newUser;
-    await AsyncStorage.setItem('users', JSON.stringify(users));
+    if (user.password !== password) {
+      alert('Incorrect password.');
+      return;
+    }
 
-    console.log('Account created:', newUser);
-    alert('Account created! You can now log in.');
-    onSwitchToLogin();
+    onLoginSuccess(user.fullName);
   };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Create Account</Text>
+      <Text style={styles.title}>Log In</Text>
 
-      <FormInput
-        placeholder="Full Name"
-        value={fullName}
-        onChangeText={setFullName}
-      />
       <FormInput
         placeholder="Email"
         value={email}
@@ -60,17 +49,11 @@ export default function RegisterScreen({ onSwitchToLogin }) {
         onChangeText={setPassword}
         secureTextEntry
       />
-      <FormInput
-        placeholder="Confirm Password"
-        value={confirmPassword}
-        onChangeText={setConfirmPassword}
-        secureTextEntry
-      />
 
-      <AppButton label="Register" onPress={handleRegister} />
+      <AppButton label="Log In" onPress={handleLogin} />
 
-      <Text style={styles.link} onPress={onSwitchToLogin}>
-        Already have an account? Log in
+      <Text style={styles.link} onPress={onSwitchToRegister}>
+        Don't have an account? Register
       </Text>
     </View>
   );
