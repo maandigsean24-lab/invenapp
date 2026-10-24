@@ -11,7 +11,9 @@ export default function RegisterScreen({ onSwitchToLogin }) {
   const [confirmPassword, setConfirmPassword] = useState('');
 
   const handleRegister = async () => {
-    if (!fullName || !email || !password || !confirmPassword) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!fullName || !normalizedEmail || !password || !confirmPassword) {
       alert('Please fill in all fields.');
       return;
     }
@@ -24,13 +26,13 @@ export default function RegisterScreen({ onSwitchToLogin }) {
     const usersData = await AsyncStorage.getItem('users');
     const users = usersData ? JSON.parse(usersData) : {};
 
-    if (users[email]) {
+    if (users[normalizedEmail]) {
       alert('An account with this email already exists.');
       return;
     }
 
-    const newUser = { fullName, email, password };
-    users[email] = newUser;
+    const newUser = { fullName, email: normalizedEmail, password };
+    users[normalizedEmail] = newUser;
     await AsyncStorage.setItem('users', JSON.stringify(users));
 
     console.log('Account created:', newUser);
@@ -52,6 +54,7 @@ export default function RegisterScreen({ onSwitchToLogin }) {
         value={email}
         onChangeText={setEmail}
         autoCapitalize="none"
+        autoCorrect={false}
         keyboardType="email-address"
       />
       <FormInput

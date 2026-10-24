@@ -1,13 +1,10 @@
 import React from 'react';
 import { TextInput, StyleSheet } from 'react-native';
 
-// A reusable text input used across Login, Register, and any future forms.
-// It takes in the same props a normal TextInput needs, plus passes along
-// anything extra (like secureTextEntry or keyboardType) via {...rest}.
-export default function FormInput({ value, onChangeText, placeholder, ...rest }) {
+export default function FormInput({ value, onChangeText, placeholder, style, ...rest }) {
   return (
     <TextInput
-      style={styles.input}
+      style={[styles.input, style]}
       placeholder={placeholder}
       value={value}
       onChangeText={onChangeText}
@@ -19,9 +16,12 @@ export default function FormInput({ value, onChangeText, placeholder, ...rest })
 const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    padding: 12,
+    borderColor: '#dfe7f5',
+    backgroundColor: '#f8fbff',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     marginBottom: 12,
+    fontSize: 15,
   },
 });

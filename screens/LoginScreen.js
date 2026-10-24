@@ -9,7 +9,9 @@ export default function LoginScreen({ onSwitchToRegister, onLoginSuccess }) {
   const [password, setPassword] = useState('');
 
   const handleLogin = async () => {
-    if (!email || !password) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail || !password) {
       alert('Please fill in all fields.');
       return;
     }
@@ -17,7 +19,7 @@ export default function LoginScreen({ onSwitchToRegister, onLoginSuccess }) {
     const usersData = await AsyncStorage.getItem('users');
     const users = usersData ? JSON.parse(usersData) : {};
 
-    const user = users[email];
+    const user = users[normalizedEmail];
 
     if (!user) {
       alert('No account found with this email.');
@@ -41,6 +43,7 @@ export default function LoginScreen({ onSwitchToRegister, onLoginSuccess }) {
         value={email}
         onChangeText={setEmail}
         autoCapitalize="none"
+        autoCorrect={false}
         keyboardType="email-address"
       />
       <FormInput
