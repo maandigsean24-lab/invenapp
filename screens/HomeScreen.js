@@ -146,7 +146,7 @@ export default function HomeScreen({ username, onLogout }) {
         </View>
         <View style={styles.statCard}>
           <Text style={styles.statLabel}>Value</Text>
-          <Text style={styles.statValue}>${inventoryValue}</Text>
+          <Text style={styles.statValue}>₱{inventoryValue}</Text>
         </View>
       </View>
 
@@ -170,7 +170,7 @@ export default function HomeScreen({ username, onLogout }) {
             <View style={styles.itemInfo}>
               <Text style={styles.itemName}>{item.name}</Text>
               <Text style={styles.itemSubText}>{item.category}</Text>
-              <Text style={styles.itemSubText}>${item.price} each</Text>
+              <Text style={styles.itemSubText}>₱{item.price} each</Text>
             </View>
 
             <View style={styles.itemControls}>
