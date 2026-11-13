@@ -1,19 +1,22 @@
 {
   "expo": {
-    "name": "invenapp",
-    "slug": "snack-536098dd-fd49-4050-9741-14d6a82c91de",
+    "name": "InvenApp",
+    "slug": "invenapp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.invenapp.inventory"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.invenapp.inventory",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png"
