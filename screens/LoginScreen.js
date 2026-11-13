@@ -1,69 +1,70 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { View, Text, StyleSheet, KeyboardAvoidingView, ScrollView, Platform } from 'react-native';
 import FormInput from '../components/FormInput';
 import AppButton from '../components/AppButton';
+import { loginUser } from '../utils/auth';
+import { notify } from '../utils/dialog';
 
 export default function LoginScreen({ onSwitchToRegister, onLoginSuccess }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const handleLogin = async () => {
-    const normalizedEmail = email.trim().toLowerCase();
-
-    if (!normalizedEmail || !password) {
-      alert('Please fill in all fields.');
+    if (!email.trim() || !password) {
+      notify('Missing information', 'Please fill in all fields.');
       return;
     }
 
-    const usersData = await AsyncStorage.getItem('users');
-    const users = usersData ? JSON.parse(usersData) : {};
-
-    const user = users[normalizedEmail];
-
-    if (!user) {
-      alert('No account found with this email.');
-      return;
+    setBusy(true);
+    try {
+      const user = await loginUser({ email, password });
+      onLoginSuccess(user);
+    } catch (error) {
+      notify('Could not log in', error.message);
+    } finally {
+      setBusy(false);
     }
-
-    if (user.password !== password) {
-      alert('Incorrect password.');
-      return;
-    }
-
-    onLoginSuccess(user.fullName);
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Log In</Text>
+    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <Text style={styles.brand}>InvenApp</Text>
+        <Text style={styles.title}>Log In</Text>
 
-      <FormInput
-        placeholder="Email"
-        value={email}
-        onChangeText={setEmail}
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType="email-address"
-      />
-      <FormInput
-        placeholder="Password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-      />
+        <FormInput
+          placeholder="Email"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="email-address"
+          autoComplete="email"
+        />
+        <FormInput
+          placeholder="Password"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+          autoComplete="password"
+          onSubmitEditing={handleLogin}
+        />
 
-      <AppButton label="Log In" onPress={handleLogin} />
+        <AppButton label="Log In" onPress={handleLogin} loading={busy} />
 
-      <Text style={styles.link} onPress={onSwitchToRegister}>
-        Don't have an account? Register
-      </Text>
-    </View>
+        <Text style={styles.link} onPress={onSwitchToRegister}>
+          Don't have an account? Register
+        </Text>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', padding: 24 },
-  title: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
+  flex: { flex: 1, backgroundColor: '#fff' },
+  container: { flexGrow: 1, justifyContent: 'center', padding: 24 },
+  brand: { fontSize: 14, fontWeight: '700', color: '#2f6fed', textAlign: 'center', letterSpacing: 1, textTransform: 'uppercase' },
+  title: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', marginTop: 4, marginBottom: 20 },
   link: { color: '#2f6fed', textAlign: 'center', marginTop: 16 },
 });
