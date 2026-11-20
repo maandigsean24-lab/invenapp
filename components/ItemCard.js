@@ -2,46 +2,49 @@ import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatMoney, stockStatus } from '../utils/format';
+import theme from '../theme';
 
 const BADGES = {
-  out: { text: 'Out of stock', bg: '#fde8e8', fg: '#b42318' },
-  low: { text: 'Low stock', bg: '#fff3d6', fg: '#a15c00' },
+  out: { text: 'Out of stock', bg: theme.colors.dangerBackground, fg: theme.colors.danger },
+  low: { text: 'Low stock', bg: theme.colors.warningBackground, fg: theme.colors.warning },
 };
 
-export default function ItemCard({ item, onAdjust, onEdit, onDelete }) {
-  const badge = BADGES[stockStatus(item.quantity)];
+export default function ItemCard({ item, threshold, onAdjust, onEdit, onDelete }) {
+  const badge = BADGES[stockStatus(item.quantity, threshold)];
 
   return (
     <View style={styles.card}>
       <View style={styles.info}>
-        <Text style={styles.name}>{item.name}</Text>
-        <Text style={styles.sub}>{item.category}</Text>
-        <Text style={styles.sub}>
+        <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.sub} numberOfLines={1}>{item.category}</Text>
+        <Text style={styles.sub} numberOfLines={1}>
           {formatMoney(item.price)} each · {formatMoney(item.price * item.quantity)} total
         </Text>
-        {badge ? (
-          <View style={[styles.badge, { backgroundColor: badge.bg }]}>
-            <Text style={[styles.badgeText, { color: badge.fg }]}>{badge.text}</Text>
-          </View>
-        ) : null}
+        <View style={styles.badgeSlot}>
+          {badge ? (
+            <View style={[styles.badge, { backgroundColor: badge.bg }]}>
+              <Text style={[styles.badgeText, { color: badge.fg }]}>{badge.text}</Text>
+            </View>
+          ) : null}
+        </View>
       </View>
 
       <View style={styles.controls}>
-        <Text style={styles.qty}>Qty: {item.quantity}</Text>
+        <Text style={styles.qty} numberOfLines={1}>Qty: {item.quantity}</Text>
         <View style={styles.row}>
-          <Pressable style={styles.counter} onPress={() => onAdjust(item.id, -1)} accessibilityLabel={`Decrease ${item.name}`}>
-            <Ionicons name="remove" size={18} color="#163d7a" />
+          <Pressable style={styles.counter} onPress={() => onAdjust(item.id, -1)} accessibilityRole="button" accessibilityLabel={`Decrease ${item.name}`}>
+            <Ionicons name="remove" size={18} color={theme.colors.primaryDark} />
           </Pressable>
-          <Pressable style={styles.counter} onPress={() => onAdjust(item.id, 1)} accessibilityLabel={`Increase ${item.name}`}>
-            <Ionicons name="add" size={18} color="#163d7a" />
+          <Pressable style={styles.counter} onPress={() => onAdjust(item.id, 1)} accessibilityRole="button" accessibilityLabel={`Increase ${item.name}`}>
+            <Ionicons name="add" size={18} color={theme.colors.primaryDark} />
           </Pressable>
         </View>
         <View style={styles.row}>
-          <Pressable style={styles.iconButton} onPress={() => onEdit(item)} accessibilityLabel={`Edit ${item.name}`}>
-            <Ionicons name="create-outline" size={20} color="#2f6fed" />
+          <Pressable style={styles.iconButton} onPress={() => onEdit(item)} accessibilityRole="button" accessibilityLabel={`Edit ${item.name}`}>
+            <Ionicons name="create-outline" size={22} color={theme.colors.primary} />
           </Pressable>
-          <Pressable style={styles.iconButton} onPress={() => onDelete(item)} accessibilityLabel={`Delete ${item.name}`}>
-            <Ionicons name="trash-outline" size={20} color="#d33b3b" />
+          <Pressable style={styles.iconButton} onPress={() => onDelete(item)} accessibilityRole="button" accessibilityLabel={`Delete ${item.name}`}>
+            <Ionicons name="trash-outline" size={22} color={theme.colors.danger} />
           </Pressable>
         </View>
       </View>
@@ -54,9 +57,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.lg,
     padding: 14,
+    minHeight: 144,
     marginBottom: 12,
     elevation: 1,
     shadowColor: '#000',
@@ -65,21 +69,22 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
   },
   info: { flex: 1, paddingRight: 8 },
-  name: { fontSize: 18, fontWeight: '700', color: '#17294a', marginBottom: 4 },
-  sub: { color: '#5a6d8d', fontSize: 12, marginBottom: 2 },
-  badge: { alignSelf: 'flex-start', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginTop: 6 },
-  badgeText: { fontSize: 11, fontWeight: '700' },
-  controls: { alignItems: 'flex-end' },
-  qty: { fontSize: 14, fontWeight: '600', color: '#1d2b45', marginBottom: 8 },
-  row: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  name: { fontSize: theme.fontSizes.lg, fontWeight: '700', color: theme.colors.textStrong, marginBottom: 4 },
+  sub: { color: theme.colors.muted, fontSize: theme.fontSizes.sm, marginBottom: 2 },
+  badgeSlot: { height: 30, justifyContent: 'center', alignItems: 'flex-start' },
+  badge: { alignSelf: 'flex-start', borderRadius: theme.borderRadius.sm, paddingHorizontal: 8, paddingVertical: 4 },
+  badgeText: { fontSize: theme.fontSizes.xs, lineHeight: 15, fontWeight: '700' },
+  controls: { width: 112, alignItems: 'flex-end' },
+  qty: { fontSize: theme.fontSizes.md, fontWeight: '600', color: theme.colors.text, marginBottom: 8 },
+  row: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
   counter: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#dfeaff',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: theme.colors.chip,
     alignItems: 'center',
     justifyContent: 'center',
     marginHorizontal: 4,
   },
-  iconButton: { padding: 6, marginHorizontal: 2 },
+  iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginHorizontal: 2 },
 });

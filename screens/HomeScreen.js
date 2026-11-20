@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   FlatList,
   TextInput,
@@ -10,38 +11,60 @@ import {
   ActivityIndicator,
   Platform,
   StatusBar,
-  Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import AppButton from '../components/AppButton';
 import ItemCard from '../components/ItemCard';
 import ItemFormModal from '../components/ItemFormModal';
+import SettingsScreen from './SettingsScreen';
 import useInventory from '../hooks/useInventory';
 import { confirm, notify } from '../utils/dialog';
-import { formatMoney, stockStatus } from '../utils/format';
+import { formatMoney, formatName, LOW_STOCK_THRESHOLD, stockStatus } from '../utils/format';
+import { readUserSettings } from '../utils/settings';
+import theme from '../theme';
 
 const SORTS = [
   { key: 'name', label: 'Name A–Z', compare: (a, b) => a.name.localeCompare(b.name) },
   { key: 'qty', label: 'Lowest stock', compare: (a, b) => a.quantity - b.quantity },
-  { key: 'value', label: 'Highest value', compare: (a, b) => b.quantity * b.price - a.quantity * a.price },
+  { key: 'newest', label: 'Newest', compare: (a, b) => (b.createdAt || 0) - (a.createdAt || 0) },
 ];
 
-const SAMPLE_ITEMS = [
-  { name: 'Laptop', category: 'Electronics', quantity: 12, price: 899 },
-  { name: 'Wireless Mouse', category: 'Accessories', quantity: 34, price: 35 },
-  { name: 'USB Cable', category: 'Accessories', quantity: 50, price: 12 },
-  { name: 'Monitor', category: 'Electronics', quantity: 8, price: 249 },
-];
-
-const csvCell = (value) => `"${String(value).replace(/"/g, '""')}"`;
-
-export default function HomeScreen({ user, onLogout }) {
-  const { items, loading, addItem, updateItem, adjustQuantity, removeItem } = useInventory(user.email);
+export default function HomeScreen({ user, onLogout, onUserUpdate }) {
+  const { items, loading, refreshing, storageError, refreshInventory, addItem, updateItem, adjustQuantity, removeItem } = useInventory(user.email);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('All');
   const [sortIndex, setSortIndex] = useState(0);
   const [formVisible, setFormVisible] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [threshold, setThreshold] = useState(LOW_STOCK_THRESHOLD);
+  const [thresholdLoaded, setThresholdLoaded] = useState(false);
+  const [settingsError, setSettingsError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    readUserSettings(user.email)
+      .then((settings) => {
+        if (!active) return;
+        setThreshold(settings.lowStockThreshold);
+        setSettingsError('');
+      })
+      .catch((error) => {
+        if (!active) return;
+        setSettingsError(error.message);
+        notify('Could not load settings', error.message);
+      })
+      .finally(() => {
+        if (active) setThresholdLoaded(true);
+      });
+    return () => { active = false; };
+  }, [user.email]);
+
+  useEffect(() => {
+    if (!successMessage) return undefined;
+    const timer = setTimeout(() => setSuccessMessage(''), 2400);
+    return () => clearTimeout(timer);
+  }, [successMessage]);
 
   const categories = useMemo(
     () => [...new Set(items.map((item) => item.category))].sort((a, b) => a.localeCompare(b)),
@@ -66,10 +89,10 @@ export default function HomeScreen({ user, onLogout }) {
     () => ({
       count: items.length,
       units: items.reduce((sum, item) => sum + item.quantity, 0),
-      attention: items.filter((item) => stockStatus(item.quantity) !== 'ok').length,
+      attention: items.filter((item) => stockStatus(item.quantity, threshold) !== 'ok').length,
       value: items.reduce((sum, item) => sum + item.quantity * item.price, 0),
     }),
-    [items]
+    [items, threshold]
   );
 
   const openAdd = () => {
@@ -82,46 +105,51 @@ export default function HomeScreen({ user, onLogout }) {
     setFormVisible(true);
   };
 
-  const handleSave = (fields) => {
-    if (editingItem) updateItem(editingItem.id, fields);
-    else addItem(fields);
-    setFormVisible(false);
-    setEditingItem(null);
+  const handleSave = async (fields) => {
+    try {
+      if (editingItem) await updateItem(editingItem.id, fields);
+      else await addItem(fields);
+      setFormVisible(false);
+      setEditingItem(null);
+      setSuccessMessage(editingItem ? 'Item updated.' : 'Item added.');
+      return true;
+    } catch (error) {
+      notify('Could not save item', error.message);
+      return false;
+    }
   };
 
   const handleDelete = async (item) => {
     if (await confirm('Delete item', `Remove "${item.name}" from your inventory?`)) {
-      removeItem(item.id);
-    }
-  };
-
-  const handleExport = async () => {
-    if (items.length === 0) {
-      notify('Nothing to export', 'Add some items first.');
-      return;
-    }
-    const rows = [
-      ['Name', 'Category', 'Quantity', 'Price', 'Total value'],
-      ...items.map((i) => [i.name, i.category, i.quantity, i.price, i.quantity * i.price]),
-    ];
-    const csv = rows.map((row) => row.map(csvCell).join(',')).join('\n');
-
-    try {
-      if (Platform.OS === 'web') {
-        await navigator.clipboard.writeText(csv);
-        notify('Copied', 'Inventory CSV copied to clipboard.');
-      } else {
-        await Share.share({ title: 'Inventory export', message: csv });
+      try {
+        await removeItem(item.id);
+        setSuccessMessage('Item deleted.');
+      } catch (error) {
+        notify('Could not delete item', error.message);
       }
-    } catch (error) {
-      console.error('Export failed.', error);
     }
   };
 
-  const loadSamples = () => SAMPLE_ITEMS.forEach(addItem);
+  const handleRefresh = async () => {
+    try {
+      await refreshInventory(true);
+    } catch {
+      // The inventory hook exposes the failure inline and keeps the previous items visible.
+    }
+  };
+
+  const handleAdjust = async (id, change) => {
+    try {
+      await adjustQuantity(id, change);
+    } catch (error) {
+      notify('Could not update quantity', error.message);
+    }
+  };
 
   const listHeader = (
     <View>
+      {storageError ? <Text style={styles.storageError}>{storageError}</Text> : null}
+      {settingsError ? <Text style={styles.storageError}>{settingsError} Low-stock counts are using the default threshold until settings can be loaded.</Text> : null}
       <View style={styles.statsRow}>
         <StatCard label="Items" value={stats.count} />
         <StatCard label="Units" value={stats.units} />
@@ -130,10 +158,10 @@ export default function HomeScreen({ user, onLogout }) {
       </View>
 
       <View style={styles.searchBox}>
-        <Ionicons name="search" size={18} color="#8a97ad" />
+        <Ionicons name="search" size={18} color={theme.colors.placeholder} />
         <TextInput
           placeholder="Search inventory"
-          placeholderTextColor="#8a97ad"
+          placeholderTextColor={theme.colors.placeholder}
           value={search}
           onChangeText={setSearch}
           style={styles.searchInput}
@@ -141,7 +169,7 @@ export default function HomeScreen({ user, onLogout }) {
         />
         {search ? (
           <Pressable onPress={() => setSearch('')} accessibilityLabel="Clear search">
-            <Ionicons name="close-circle" size={18} color="#8a97ad" />
+            <Ionicons name="close-circle" size={18} color={theme.colors.placeholder} />
           </Pressable>
         ) : null}
       </View>
@@ -165,30 +193,44 @@ export default function HomeScreen({ user, onLogout }) {
           {visibleItems.length} {visibleItems.length === 1 ? 'item' : 'items'}
         </Text>
         <Pressable style={styles.sortButton} onPress={() => setSortIndex((i) => (i + 1) % SORTS.length)}>
-          <Ionicons name="swap-vertical" size={16} color="#2f6fed" />
+          <Ionicons name="swap-vertical" size={16} color={theme.colors.primary} />
           <Text style={styles.sortText}>{SORTS[sortIndex].label}</Text>
         </Pressable>
       </View>
     </View>
   );
 
+  if (settingsVisible) {
+    return (
+      <SettingsScreen
+        user={user}
+        items={items}
+        threshold={threshold}
+        onBack={() => setSettingsVisible(false)}
+        onUserUpdate={onUserUpdate}
+        onThresholdChange={(value) => {
+          setThreshold(value);
+          setSettingsError('');
+        }}
+        onLogout={onLogout}
+      />
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.flex}>
-          <Text style={styles.welcome}>Welcome, {user.fullName}!</Text>
+          <Text style={styles.welcome} numberOfLines={1}>{formatName(user.fullName) || user.email}</Text>
           <Text style={styles.title}>Inventory</Text>
         </View>
-        <Pressable onPress={handleExport} style={styles.headerButton} accessibilityLabel="Export inventory">
-          <Ionicons name="share-outline" size={22} color="#2f6fed" />
-        </Pressable>
-        <Pressable onPress={onLogout} style={styles.headerButton} accessibilityLabel="Log out">
-          <Ionicons name="log-out-outline" size={22} color="#2f6fed" />
+        <Pressable onPress={() => setSettingsVisible(true)} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Open settings">
+          <Ionicons name="settings-outline" size={23} color={theme.colors.primary} />
         </Pressable>
       </View>
 
-      {loading ? (
-        <ActivityIndicator style={styles.loader} size="large" color="#2f6fed" />
+      {loading || !thresholdLoaded ? (
+        <ActivityIndicator style={styles.loader} size="large" color={theme.colors.primary} />
       ) : (
         <FlatList
           data={visibleItems}
@@ -196,23 +238,30 @@ export default function HomeScreen({ user, onLogout }) {
           contentContainerStyle={styles.listContent}
           ListHeaderComponent={listHeader}
           keyboardShouldPersistTaps="handled"
+          onRefresh={handleRefresh}
+          refreshing={refreshing}
           ListEmptyComponent={
-            items.length === 0 ? (
+            storageError && items.length === 0 ? (
+              <Text style={styles.emptyText}>Inventory could not be loaded. Pull down to retry.</Text>
+            ) : items.length === 0 ? (
               <View style={styles.empty}>
-                <Ionicons name="cube-outline" size={48} color="#9db3d8" />
-                <Text style={styles.emptyTitle}>No items yet</Text>
-                <Text style={styles.emptyText}>Add your first item, or load a few samples to try things out.</Text>
-                <AppButton label="Load sample items" variant="outline" onPress={loadSamples} style={styles.emptyButton} />
+                <Image source={require('../assets/logo-mark.png')} style={styles.emptyIcon} resizeMode="contain" />
+                <Text style={styles.emptyText}>No items yet. Tap + to add one.</Text>
               </View>
             ) : (
               <Text style={styles.emptyText}>No inventory items match your search.</Text>
             )
           }
           renderItem={({ item }) => (
-            <ItemCard item={item} onAdjust={adjustQuantity} onEdit={openEdit} onDelete={handleDelete} />
+            <ItemCard item={item} threshold={threshold} onAdjust={handleAdjust} onEdit={openEdit} onDelete={handleDelete} />
           )}
         />
       )}
+      {successMessage ? (
+        <View style={styles.successBanner}>
+          <Text style={styles.successText}>{successMessage}</Text>
+        </View>
+      ) : null}
 
       <Pressable style={styles.fab} onPress={openAdd} accessibilityLabel="Add item">
         <Ionicons name="add" size={30} color="#fff" />
@@ -247,18 +296,18 @@ const topInset = Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 1
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: { flex: 1, backgroundColor: '#eef4ff', paddingHorizontal: 20, paddingTop: topInset },
+  container: { flex: 1, backgroundColor: theme.colors.background, paddingHorizontal: theme.spacing.xl, paddingTop: topInset },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  welcome: { fontSize: 14, fontWeight: '600', color: '#5a6d8d' },
-  title: { fontSize: 28, fontWeight: 'bold', color: '#13233d' },
-  headerButton: { padding: 8, marginLeft: 4 },
+  welcome: { fontSize: theme.fontSizes.md, fontWeight: '600', color: theme.colors.muted },
+  title: { fontSize: theme.fontSizes.title, fontWeight: 'bold', color: theme.colors.text },
+  headerButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
   loader: { marginTop: 40 },
-  listContent: { paddingBottom: 100 },
-  statsRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 8 },
+  listContent: { paddingBottom: 128 },
+  statsRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: theme.spacing.sm },
   statCard: {
     width: '48%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.lg,
     padding: 14,
     marginBottom: 10,
     elevation: 1,
@@ -267,41 +316,43 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
   },
-  statLabel: { color: '#66748f', fontSize: 12, marginBottom: 6 },
-  statValue: { color: '#13233d', fontSize: 22, fontWeight: '700' },
-  statWarn: { color: '#b42318' },
+  statLabel: { color: theme.colors.muted, fontSize: theme.fontSizes.sm, marginBottom: 6 },
+  statValue: { color: theme.colors.text, fontSize: theme.fontSizes.xl, fontWeight: '700' },
+  statWarn: { color: theme.colors.danger },
   searchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 10,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.md,
     borderWidth: 1,
-    borderColor: '#dfe7f5',
+    borderColor: theme.colors.border,
     paddingHorizontal: 12,
     marginBottom: 12,
   },
-  searchInput: { flex: 1, paddingVertical: 12, paddingHorizontal: 8, fontSize: 15, color: '#13233d' },
+  searchInput: { flex: 1, paddingVertical: 12, paddingHorizontal: 8, fontSize: theme.fontSizes.body, color: theme.colors.text },
   chips: { marginBottom: 12, flexGrow: 0 },
-  chip: { backgroundColor: '#fff', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 7, marginRight: 8 },
-  chipActive: { backgroundColor: '#2f6fed' },
-  chipText: { color: '#44536e', fontWeight: '600', fontSize: 13 },
+  chip: { backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.round, paddingHorizontal: 14, paddingVertical: 7, marginRight: 8 },
+  chipActive: { backgroundColor: theme.colors.primary },
+  chipText: { color: theme.colors.label, fontWeight: '600', fontSize: 13 },
   chipTextActive: { color: '#fff' },
   sortRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  resultCount: { color: '#5a6d8d', fontSize: 13 },
+  resultCount: { color: theme.colors.muted, fontSize: 13 },
   sortButton: { flexDirection: 'row', alignItems: 'center' },
-  sortText: { color: '#2f6fed', fontWeight: '600', marginLeft: 4, fontSize: 13 },
+  sortText: { color: theme.colors.primary, fontWeight: '600', marginLeft: 4, fontSize: 13 },
   empty: { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 20 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#17294a', marginTop: 8 },
-  emptyText: { textAlign: 'center', paddingVertical: 10, color: '#5a6d8d' },
-  emptyButton: { marginTop: 8, alignSelf: 'stretch' },
+  emptyIcon: { width: 56, height: 56, marginBottom: theme.spacing.sm },
+  emptyText: { textAlign: 'center', paddingVertical: 10, color: theme.colors.muted },
+  storageError: { color: theme.colors.danger, backgroundColor: theme.colors.dangerBackground, borderRadius: theme.borderRadius.md, padding: theme.spacing.md, marginBottom: theme.spacing.md },
+  successBanner: { position: 'absolute', top: topInset + 54, alignSelf: 'center', backgroundColor: theme.colors.success, borderRadius: theme.borderRadius.md, paddingHorizontal: 16, paddingVertical: 10 },
+  successText: { color: '#fff', fontSize: theme.fontSizes.md, fontWeight: '600' },
   fab: {
     position: 'absolute',
     right: 20,
-    bottom: 28,
+    bottom: 20,
     width: 58,
     height: 58,
     borderRadius: 29,
-    backgroundColor: '#2f6fed',
+    backgroundColor: theme.colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 6,

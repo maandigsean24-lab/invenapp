@@ -1,29 +1,38 @@
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { Pressable, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import theme from '../theme';
 
 export default function AppButton({ label, onPress, style, textStyle, variant = 'primary', loading, disabled }) {
   const isOutline = variant === 'outline';
+  const isDanger = variant === 'danger';
   return (
-    <TouchableOpacity
-      style={[styles.button, isOutline && styles.outline, (disabled || loading) && styles.disabled, style]}
+    <Pressable
+      style={({ pressed }) => [
+        styles.button,
+        isOutline && styles.outline,
+        isDanger && styles.danger,
+        pressed && !isOutline && !isDanger && styles.pressed,
+        (disabled || loading) && styles.disabled,
+        style,
+      ]}
       onPress={onPress}
       disabled={disabled || loading}
       accessibilityRole="button"
       accessibilityLabel={label}
     >
       {loading ? (
-        <ActivityIndicator color={isOutline ? '#2f6fed' : '#fff'} />
+        <ActivityIndicator color={isOutline ? theme.colors.primary : '#fff'} />
       ) : (
         <Text style={[styles.buttonText, isOutline && styles.outlineText, textStyle]}>{label}</Text>
       )}
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
-    backgroundColor: '#2f6fed',
-    borderRadius: 10,
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.borderRadius.md,
     paddingVertical: 14,
     paddingHorizontal: 18,
     alignItems: 'center',
@@ -34,8 +43,10 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
   },
-  outline: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#2f6fed', elevation: 0, shadowOpacity: 0 },
+  outline: { backgroundColor: 'transparent', borderWidth: 1, borderColor: theme.colors.primary, elevation: 0, shadowOpacity: 0 },
+  danger: { backgroundColor: theme.colors.danger },
+  pressed: { backgroundColor: theme.colors.primaryPressed },
   disabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
-  outlineText: { color: '#2f6fed' },
+  buttonText: { color: '#fff', fontWeight: 'bold', fontSize: theme.fontSizes.body },
+  outlineText: { color: theme.colors.primary },
 });

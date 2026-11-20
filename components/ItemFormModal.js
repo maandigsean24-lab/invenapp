@@ -2,17 +2,21 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, Modal, Pressable, ScrollView, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
 import FormInput from './FormInput';
 import AppButton from './AppButton';
-import { notify } from '../utils/dialog';
+import theme from '../theme';
 
 const EMPTY = { name: '', category: '', quantity: '', price: '' };
 
 // Used for both adding (item = null) and editing an existing item.
 export default function ItemFormModal({ visible, item, categories, onSave, onClose }) {
   const [form, setForm] = useState(EMPTY);
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
   const isEditing = !!item;
 
   useEffect(() => {
     if (!visible) return;
+    setErrors({});
+    setSaving(false);
     setForm(
       item
         ? { name: item.name, category: item.category, quantity: String(item.quantity), price: String(item.price) }
@@ -20,39 +24,44 @@ export default function ItemFormModal({ visible, item, categories, onSave, onClo
     );
   }, [visible, item]);
 
-  const set = (field) => (value) => setForm((current) => ({ ...current, [field]: value }));
+  const set = (field) => (value) => {
+    setForm((current) => ({ ...current, [field]: value }));
+    setErrors((current) => ({ ...current, [field]: '' }));
+  };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const name = form.name.trim();
     const category = form.category.trim();
     const quantity = Number(form.quantity);
     const price = Number(form.price);
+    const nextErrors = {};
 
-    if (!name || !category || form.quantity.trim() === '' || form.price.trim() === '') {
-      notify('Missing information', 'Please complete all item fields.');
-      return;
-    }
-    if (!Number.isInteger(quantity) || quantity < 0) {
-      notify('Invalid quantity', 'Quantity must be a whole number, 0 or more.');
-      return;
-    }
-    if (!Number.isFinite(price) || price < 0) {
-      notify('Invalid price', 'Price must be a number, 0 or more.');
-      return;
-    }
+    if (!name) nextErrors.name = 'Item name is required.';
+    if (!category) nextErrors.category = 'Category is required.';
+    if (form.quantity.trim() === '') nextErrors.quantity = 'Quantity is required.';
+    else if (!Number.isInteger(quantity) || quantity < 0) nextErrors.quantity = 'Enter a whole number, 0 or more.';
+    if (form.price.trim() === '') nextErrors.price = 'Price is required.';
+    else if (!Number.isFinite(price) || price < 0) nextErrors.price = 'Enter a number, 0 or more.';
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
 
-    onSave({ name, category, quantity, price });
+    setSaving(true);
+    try {
+      await onSave({ name, category, quantity, price });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.card}>
           <ScrollView keyboardShouldPersistTaps="handled">
             <Text style={styles.title}>{isEditing ? 'Edit item' : 'Add inventory item'}</Text>
 
-            <FormInput label="Item name" placeholder="e.g. Wireless Mouse" value={form.name} onChangeText={set('name')} />
-            <FormInput label="Category" placeholder="e.g. Accessories" value={form.category} onChangeText={set('category')} />
+            <FormInput label="Item name" placeholder="e.g. Wireless Mouse" value={form.name} onChangeText={set('name')} error={errors.name} />
+            <FormInput label="Category" placeholder="e.g. Accessories" value={form.category} onChangeText={set('category')} error={errors.category} />
 
             {categories.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips} keyboardShouldPersistTaps="handled">
@@ -64,14 +73,12 @@ export default function ItemFormModal({ visible, item, categories, onSave, onClo
               </ScrollView>
             )}
 
-            <FormInput label="Quantity" placeholder="0" keyboardType="number-pad" value={form.quantity} onChangeText={set('quantity')} />
-            <FormInput label="Price (₱)" placeholder="0.00" keyboardType="decimal-pad" value={form.price} onChangeText={set('price')} />
+            <FormInput label="Quantity" placeholder="0" keyboardType="number-pad" value={form.quantity} onChangeText={(value) => set('quantity')(value.replace(/\D/g, ''))} error={errors.quantity} />
+            <FormInput label="Price (₱)" placeholder="0.00" keyboardType="decimal-pad" value={form.price} onChangeText={(value) => set('price')(value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1'))} error={errors.price} />
 
             <View style={styles.actions}>
-              <AppButton label={isEditing ? 'Save changes' : 'Add item'} onPress={handleSave} style={styles.save} />
-              <Pressable onPress={onClose}>
-                <Text style={styles.cancel}>Cancel</Text>
-              </Pressable>
+              <AppButton label="Save" onPress={handleSave} loading={saving} style={styles.save} />
+              <AppButton label="Cancel" variant="outline" onPress={onClose} disabled={saving} style={styles.cancelButton} />
             </View>
           </ScrollView>
         </View>
@@ -81,13 +88,13 @@ export default function ItemFormModal({ visible, item, categories, onSave, onClo
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.45)', justifyContent: 'center', padding: 20 },
-  card: { backgroundColor: '#fff', borderRadius: 16, padding: 20, maxHeight: '90%' },
-  title: { fontSize: 22, fontWeight: '700', color: '#13233d', marginBottom: 16 },
-  chips: { marginBottom: 12, flexGrow: 0 },
-  chip: { backgroundColor: '#eef4ff', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6, marginRight: 8 },
-  chipText: { color: '#2f6fed', fontSize: 12, fontWeight: '600' },
-  actions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
-  save: { flex: 1, marginRight: 12 },
-  cancel: { color: '#2f6fed', fontWeight: '700', paddingVertical: 12 },
+  overlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.45)', justifyContent: 'center', padding: theme.spacing.xl },
+  card: { backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.xl, padding: theme.spacing.xl, maxHeight: '90%' },
+  title: { fontSize: theme.fontSizes.xl, fontWeight: '700', color: theme.colors.text, marginBottom: theme.spacing.lg },
+  chips: { marginBottom: theme.spacing.md, flexGrow: 0 },
+  chip: { backgroundColor: theme.colors.chip, borderRadius: theme.borderRadius.round, paddingHorizontal: theme.spacing.md, paddingVertical: 6, marginRight: theme.spacing.sm },
+  chipText: { color: theme.colors.primary, fontSize: theme.fontSizes.sm, fontWeight: '600' },
+  actions: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
+  save: { flex: 1, marginRight: theme.spacing.md },
+  cancelButton: { flex: 1 },
 });

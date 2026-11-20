@@ -1,5 +1,14 @@
 export const LOW_STOCK_THRESHOLD = 10;
 
+export function formatName(name) {
+  return String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toLocaleUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 export function formatMoney(value) {
   const amount = Number.isFinite(value) ? value : 0;
   return `₱${amount.toLocaleString('en-PH', {
@@ -8,8 +17,8 @@ export function formatMoney(value) {
   })}`;
 }
 
-export function stockStatus(quantity) {
+export function stockStatus(quantity, threshold = LOW_STOCK_THRESHOLD) {
   if (quantity === 0) return 'out';
-  if (quantity < LOW_STOCK_THRESHOLD) return 'low';
+  if (quantity < threshold) return 'low';
   return 'ok';
 }
