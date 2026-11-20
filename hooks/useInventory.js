@@ -1,10 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase, supabaseErrorMessage, supabaseRequest } from '../supabase/client';
 
-const LEGACY_KEY = 'inventory';
+const ITEM_FIELDS = 'id, name, category, quantity, price, low_stock_threshold, created_at';
 
-export default function useInventory(userEmail) {
-  const storageKey = `inventory:${userEmail}`;
+function itemFromRow(row) {
+  const { low_stock_threshold: lowStockThreshold, ...item } = row;
+  return {
+    ...item,
+    price: Number(row.price),
+    lowStockThreshold,
+    createdAt: new Date(row.created_at).getTime(),
+  };
+}
+
+function throwDatabaseError(error, action) {
+  if (error) throw new Error(`Unable to ${action}: ${supabaseErrorMessage(error)}`);
+}
+
+export default function useInventory(userId) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -17,73 +30,97 @@ export default function useInventory(userEmail) {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     try {
-      let stored = await AsyncStorage.getItem(storageKey);
-
-      if (!stored) {
-        const legacy = await AsyncStorage.getItem(LEGACY_KEY);
-        if (legacy) {
-          stored = legacy;
-        }
-      }
-
-      const loadedItems = stored ? JSON.parse(stored) : [];
-      if (!Array.isArray(loadedItems)) throw new Error('Stored inventory is invalid.');
-      if (stored && !(await AsyncStorage.getItem(storageKey))) {
-        await AsyncStorage.setItem(storageKey, JSON.stringify(loadedItems));
-        await AsyncStorage.removeItem(LEGACY_KEY);
-      }
+      const { data, error } = await supabaseRequest(() => supabase
+        .from('inventory_items')
+        .select(ITEM_FIELDS)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false }));
+      throwDatabaseError(error, 'load your inventory');
+      const loadedItems = data.map(itemFromRow);
       itemsRef.current = loadedItems;
       setItems(loadedItems);
       setStorageError('');
       loaded.current = true;
-    } catch {
-      setStorageError('Unable to load your inventory. Please try again.');
+    } catch (error) {
+      setStorageError(error.message);
       if (!loaded.current) itemsRef.current = [];
-      throw new Error('Unable to load your inventory. Please try again.');
+      throw error;
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [storageKey]);
+  }, [userId]);
 
   useEffect(() => {
     loaded.current = false;
     loadInventory().catch(() => {});
   }, [loadInventory]);
 
-  const mutate = useCallback((update) => {
-    const operation = writeQueue.current.catch(() => {}).then(async () => {
+  const mutate = useCallback((operation) => {
+    const queuedOperation = writeQueue.current.catch(() => {}).then(async () => {
       if (!loaded.current) throw new Error('Inventory is still loading. Please try again.');
-      const nextItems = update(itemsRef.current);
-      try {
-        await AsyncStorage.setItem(storageKey, JSON.stringify(nextItems));
-      } catch {
-        throw new Error('Unable to save your inventory. Please try again.');
-      }
+      const nextItems = await operation(itemsRef.current);
       itemsRef.current = nextItems;
       setItems(nextItems);
       setStorageError('');
     });
-    writeQueue.current = operation;
-    return operation;
-  }, [storageKey]);
+    writeQueue.current = queuedOperation;
+    return queuedOperation;
+  }, []);
 
-  const addItem = useCallback((fields) => mutate((current) => [
-    { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, createdAt: Date.now(), ...fields },
-    ...current,
-  ]), [mutate]);
+  const addItem = useCallback((fields) => mutate(async (current) => {
+    const { lowStockThreshold, ...itemFields } = fields;
+    const { data, error } = await supabaseRequest(() => supabase
+      .from('inventory_items')
+      .insert({ ...itemFields, low_stock_threshold: lowStockThreshold, user_id: userId })
+      .select(ITEM_FIELDS)
+      .single());
+    throwDatabaseError(error, 'save your item');
+    return [itemFromRow(data), ...current];
+  }), [mutate, userId]);
 
-  const updateItem = useCallback((id, fields) => mutate((current) =>
-    current.map((item) => (item.id === id ? { ...item, ...fields } : item))
-  ), [mutate]);
+  const updateItem = useCallback((id, fields) => mutate(async (current) => {
+    // The database trigger records a history entry when this edit changes quantity.
+    const { lowStockThreshold, ...itemFields } = fields;
+    const { data, error } = await supabaseRequest(() => supabase
+      .from('inventory_items')
+      .update({ ...itemFields, low_stock_threshold: lowStockThreshold })
+      .eq('id', id)
+      .eq('user_id', userId)
+      .select(ITEM_FIELDS)
+      .single());
+    throwDatabaseError(error, 'update your item');
+    const updated = itemFromRow(data);
+    return current.map((item) => (item.id === id ? updated : item));
+  }), [mutate, userId]);
 
-  const adjustQuantity = useCallback((id, change) => mutate((current) =>
-    current.map((item) =>
-      item.id === id ? { ...item, quantity: Math.max(0, item.quantity + change) } : item
-    )
-  ), [mutate]);
+  const adjustQuantity = useCallback((id, change) => mutate(async (current) => {
+    const item = current.find((entry) => entry.id === id);
+    if (!item) throw new Error('This item is no longer in your inventory. Refresh and try again.');
+    // The database trigger logs this quantity change in the same transaction.
+    const { data, error } = await supabaseRequest(() => supabase
+      .from('inventory_items')
+      .update({ quantity: Math.max(0, item.quantity + change) })
+      .eq('id', id)
+      .eq('user_id', userId)
+      .select(ITEM_FIELDS)
+      .single());
+    throwDatabaseError(error, 'update item quantity');
+    const updated = itemFromRow(data);
+    return current.map((entry) => (entry.id === id ? updated : entry));
+  }), [mutate, userId]);
 
-  const removeItem = useCallback((id) => mutate((current) => current.filter((item) => item.id !== id)), [mutate]);
+  const removeItem = useCallback((id) => mutate(async (current) => {
+    const { data, error } = await supabaseRequest(() => supabase
+      .from('inventory_items')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId)
+      .select('id')
+      .single());
+    throwDatabaseError(error, 'delete your item');
+    return current.filter((item) => item.id !== data.id);
+  }), [mutate, userId]);
 
   return { items, loading, refreshing, storageError, refreshInventory: loadInventory, addItem, updateItem, adjustQuantity, removeItem };
 }

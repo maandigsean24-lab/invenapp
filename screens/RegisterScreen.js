@@ -35,8 +35,13 @@ export default function RegisterScreen({ onSwitchToLogin }) {
 
     setBusy(true);
     try {
-      await registerUser({ fullName, email, password });
-      notify('Account created', 'Log in with your new account to continue.');
+      const result = await registerUser({ fullName, email, password });
+      notify(
+        'Account created',
+        result.emailConfirmationRequired
+          ? 'Check your email to confirm your account, then log in.'
+          : 'Log in with your new account to continue.'
+      );
       onSwitchToLogin();
     } catch (error) {
       setServerError(error.message);

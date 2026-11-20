@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import ItemCard from '../components/ItemCard';
 import ItemFormModal from '../components/ItemFormModal';
 import SettingsScreen from './SettingsScreen';
+import HistoryScreen from './HistoryScreen';
 import useInventory from '../hooks/useInventory';
 import { confirm, notify } from '../utils/dialog';
 import { formatMoney, formatName, LOW_STOCK_THRESHOLD, stockStatus } from '../utils/format';
@@ -29,7 +30,7 @@ const SORTS = [
 ];
 
 export default function HomeScreen({ user, onLogout, onUserUpdate }) {
-  const { items, loading, refreshing, storageError, refreshInventory, addItem, updateItem, adjustQuantity, removeItem } = useInventory(user.email);
+  const { items, loading, refreshing, storageError, refreshInventory, addItem, updateItem, adjustQuantity, removeItem } = useInventory(user.id);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('All');
   const [sortIndex, setSortIndex] = useState(0);
@@ -37,13 +38,14 @@ export default function HomeScreen({ user, onLogout, onUserUpdate }) {
   const [editingItem, setEditingItem] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [historyItem, setHistoryItem] = useState(null);
   const [threshold, setThreshold] = useState(LOW_STOCK_THRESHOLD);
   const [thresholdLoaded, setThresholdLoaded] = useState(false);
   const [settingsError, setSettingsError] = useState('');
 
   useEffect(() => {
     let active = true;
-    readUserSettings(user.email)
+    readUserSettings(user.id)
       .then((settings) => {
         if (!active) return;
         setThreshold(settings.lowStockThreshold);
@@ -58,7 +60,7 @@ export default function HomeScreen({ user, onLogout, onUserUpdate }) {
         if (active) setThresholdLoaded(true);
       });
     return () => { active = false; };
-  }, [user.email]);
+  }, [user.id]);
 
   useEffect(() => {
     if (!successMessage) return undefined;
@@ -89,10 +91,21 @@ export default function HomeScreen({ user, onLogout, onUserUpdate }) {
     () => ({
       count: items.length,
       units: items.reduce((sum, item) => sum + item.quantity, 0),
-      attention: items.filter((item) => stockStatus(item.quantity, threshold) !== 'ok').length,
+      attention: items.filter((item) => stockStatus(item.quantity, item.lowStockThreshold ?? threshold) !== 'ok').length,
       value: items.reduce((sum, item) => sum + item.quantity * item.price, 0),
     }),
     [items, threshold]
+  );
+
+  const userInitials = useMemo(
+    () => formatName(user.fullName || user.email)
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0))
+      .join('')
+      .toUpperCase(),
+    [user.email, user.fullName]
   );
 
   const openAdd = () => {
@@ -204,7 +217,6 @@ export default function HomeScreen({ user, onLogout, onUserUpdate }) {
     return (
       <SettingsScreen
         user={user}
-        items={items}
         threshold={threshold}
         onBack={() => setSettingsVisible(false)}
         onUserUpdate={onUserUpdate}
@@ -217,12 +229,26 @@ export default function HomeScreen({ user, onLogout, onUserUpdate }) {
     );
   }
 
+  if (historyItem) {
+    return <HistoryScreen user={user} item={historyItem} onBack={() => setHistoryItem(null)} />;
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.flex}>
-          <Text style={styles.welcome} numberOfLines={1}>{formatName(user.fullName) || user.email}</Text>
-          <Text style={styles.title}>Inventory</Text>
+          <View style={styles.welcomeRow}>
+            <View style={styles.avatar} accessible accessibilityLabel={`Profile initials ${userInitials}`}>
+              <Text style={styles.avatarText}>{userInitials}</Text>
+            </View>
+            <Text style={styles.welcome} numberOfLines={1}>{formatName(user.fullName) || user.email}</Text>
+          </View>
+          <Image
+            source={require('../assets/brand-logo.png')}
+            style={styles.brandLogo}
+            resizeMode="contain"
+            accessibilityLabel="InvenApp logo"
+          />
         </View>
         <Pressable onPress={() => setSettingsVisible(true)} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Open settings">
           <Ionicons name="settings-outline" size={23} color={theme.colors.primary} />
@@ -253,7 +279,7 @@ export default function HomeScreen({ user, onLogout, onUserUpdate }) {
             )
           }
           renderItem={({ item }) => (
-            <ItemCard item={item} threshold={threshold} onAdjust={handleAdjust} onEdit={openEdit} onDelete={handleDelete} />
+            <ItemCard item={item} threshold={threshold} onAdjust={handleAdjust} onEdit={openEdit} onDelete={handleDelete} onHistory={setHistoryItem} />
           )}
         />
       )}
@@ -271,6 +297,7 @@ export default function HomeScreen({ user, onLogout, onUserUpdate }) {
         visible={formVisible}
         item={editingItem}
         categories={categories}
+        defaultThreshold={threshold}
         onSave={handleSave}
         onClose={() => {
           setFormVisible(false);
@@ -298,8 +325,19 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1, backgroundColor: theme.colors.background, paddingHorizontal: theme.spacing.xl, paddingTop: topInset },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
+  welcomeRow: { flexDirection: 'row', alignItems: 'center', minWidth: 0 },
+  avatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: theme.colors.chip,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: theme.spacing.sm,
+  },
+  avatarText: { color: theme.colors.primary, fontSize: theme.fontSizes.xs, fontWeight: '700' },
   welcome: { fontSize: theme.fontSizes.md, fontWeight: '600', color: theme.colors.muted },
-  title: { fontSize: theme.fontSizes.title, fontWeight: 'bold', color: theme.colors.text },
+  brandLogo: { width: 156, height: 36, alignSelf: 'flex-start', marginTop: 3 },
   headerButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
   loader: { marginTop: 40 },
   listContent: { paddingBottom: 128 },

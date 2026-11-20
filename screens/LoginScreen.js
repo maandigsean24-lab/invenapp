@@ -31,7 +31,7 @@ export default function LoginScreen({ onSwitchToRegister, onLoginSuccess }) {
       const user = await loginUser({ email, password });
       onLoginSuccess(user);
     } catch (error) {
-      if (error.message === 'Wrong email or password.') setServerError(error.message);
+      if (error.message.toLowerCase().includes('invalid login credentials')) setServerError('Wrong email or password.');
       else notify('Could not log in', error.message);
     } finally {
       setBusy(false);

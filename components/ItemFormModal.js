@@ -4,10 +4,10 @@ import FormInput from './FormInput';
 import AppButton from './AppButton';
 import theme from '../theme';
 
-const EMPTY = { name: '', category: '', quantity: '', price: '' };
+const EMPTY = { name: '', category: '', quantity: '', price: '', lowStockThreshold: '' };
 
 // Used for both adding (item = null) and editing an existing item.
-export default function ItemFormModal({ visible, item, categories, onSave, onClose }) {
+export default function ItemFormModal({ visible, item, categories, defaultThreshold, onSave, onClose }) {
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
@@ -19,10 +19,16 @@ export default function ItemFormModal({ visible, item, categories, onSave, onClo
     setSaving(false);
     setForm(
       item
-        ? { name: item.name, category: item.category, quantity: String(item.quantity), price: String(item.price) }
-        : EMPTY
+        ? {
+          name: item.name,
+          category: item.category,
+          quantity: String(item.quantity),
+          price: String(item.price),
+          lowStockThreshold: String(item.lowStockThreshold ?? defaultThreshold),
+        }
+        : { ...EMPTY, lowStockThreshold: String(defaultThreshold) }
     );
-  }, [visible, item]);
+  }, [visible, item, defaultThreshold]);
 
   const set = (field) => (value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -34,6 +40,7 @@ export default function ItemFormModal({ visible, item, categories, onSave, onClo
     const category = form.category.trim();
     const quantity = Number(form.quantity);
     const price = Number(form.price);
+    const lowStockThreshold = Number(form.lowStockThreshold);
     const nextErrors = {};
 
     if (!name) nextErrors.name = 'Item name is required.';
@@ -42,12 +49,16 @@ export default function ItemFormModal({ visible, item, categories, onSave, onClo
     else if (!Number.isInteger(quantity) || quantity < 0) nextErrors.quantity = 'Enter a whole number, 0 or more.';
     if (form.price.trim() === '') nextErrors.price = 'Price is required.';
     else if (!Number.isFinite(price) || price < 0) nextErrors.price = 'Enter a number, 0 or more.';
+    if (form.lowStockThreshold.trim() === '') nextErrors.lowStockThreshold = 'Low-stock threshold is required.';
+    else if (!Number.isInteger(lowStockThreshold) || lowStockThreshold < 0 || lowStockThreshold > 999999) {
+      nextErrors.lowStockThreshold = 'Enter a whole number between 0 and 999,999.';
+    }
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
 
     setSaving(true);
     try {
-      await onSave({ name, category, quantity, price });
+      await onSave({ name, category, quantity, price, lowStockThreshold });
     } finally {
       setSaving(false);
     }
@@ -75,6 +86,14 @@ export default function ItemFormModal({ visible, item, categories, onSave, onClo
 
             <FormInput label="Quantity" placeholder="0" keyboardType="number-pad" value={form.quantity} onChangeText={(value) => set('quantity')(value.replace(/\D/g, ''))} error={errors.quantity} />
             <FormInput label="Price (₱)" placeholder="0.00" keyboardType="decimal-pad" value={form.price} onChangeText={(value) => set('price')(value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1'))} error={errors.price} />
+            <FormInput
+              label="Low-stock alert at"
+              placeholder="10"
+              keyboardType="number-pad"
+              value={form.lowStockThreshold}
+              onChangeText={(value) => set('lowStockThreshold')(value.replace(/\D/g, ''))}
+              error={errors.lowStockThreshold}
+            />
 
             <View style={styles.actions}>
               <AppButton label="Save" onPress={handleSave} loading={saving} style={styles.save} />
