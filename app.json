@@ -6,11 +6,6 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#F3F6F5"
-    },
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
@@ -35,7 +30,8 @@
         {
           "photosPermission": "Allow InvenApp to select photos for your inventory items."
         }
-      ]
+      ],
+      "expo-splash-screen"
     ]
   }
 }

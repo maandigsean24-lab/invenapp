@@ -1,248 +1,178 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  StatusBar,
-  Text,
-  View,
-} from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import appConfig from '../app.json';
 import AppButton from '../components/AppButton';
 import FormInput from '../components/FormInput';
-import { changeUserPassword, updateUserName } from '../utils/auth';
-import { confirm, notify } from '../utils/dialog';
-import { formatName } from '../utils/format';
+import { changeUserPassword } from '../utils/auth';
 import { saveUserSettings } from '../utils/settings';
+import { notify } from '../utils/dialog';
 import theme from '../theme';
 
-export default function SettingsScreen({
-  user,
-  threshold,
-  onBack,
-  onUserUpdate,
-  onThresholdChange,
-  onLogout,
-}) {
-  const [name, setName] = useState(user.fullName || '');
-  const [newThreshold, setNewThreshold] = useState(String(threshold));
+export default function SettingsScreen({ user, threshold: initialThreshold, onThresholdChange, onBack }) {
+  const [password, setPassword] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [busy, setBusy] = useState('');
-  const [nameExpanded, setNameExpanded] = useState(false);
+  const [threshold, setThreshold] = useState(String(initialThreshold));
   const [passwordExpanded, setPasswordExpanded] = useState(false);
+  const [thresholdExpanded, setThresholdExpanded] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [savingThreshold, setSavingThreshold] = useState(false);
 
   useEffect(() => {
-    setNewThreshold(String(threshold));
-  }, [threshold]);
-
-  const initials = useMemo(() => {
-    const parts = formatName(user.fullName || user.email).split(/\s+/);
-    return parts.slice(0, 2).map((part) => part.charAt(0)).join('').toUpperCase();
-  }, [user.email, user.fullName]);
-
-  const handleSaveName = async () => {
-    const cleanName = name.trim();
-    if (!cleanName) {
-      notify('Name required', 'Enter a name for your account.');
-      return;
-    }
-
-    setBusy('name');
-    try {
-      const updatedUser = await updateUserName(user, cleanName);
-      onUserUpdate(updatedUser);
-      setNameExpanded(false);
-      notify('Name updated', 'Your account name has been saved.');
-    } catch (error) {
-      notify('Could not update name', error.message);
-    } finally {
-      setBusy('');
-    }
-  };
+    setThreshold(String(initialThreshold));
+  }, [initialThreshold]);
 
   const handleChangePassword = async () => {
     if (!currentPassword) {
       notify('Current password required', 'Enter your current password to continue.');
       return;
     }
-    if (newPassword.length < 8) {
-      notify('Password too short', 'Use at least 8 characters for your new password.');
+    if (password.length < 6) {
+      notify('Password too short', 'Your password must be at least 6 characters.');
       return;
     }
-    if (newPassword !== confirmPassword) {
-      notify('Passwords do not match', 'Check the new password and confirmation.');
+    if (password !== confirmPassword) {
+      notify('Passwords do not match', 'Please enter the same password in both fields.');
       return;
     }
 
-    setBusy('password');
+    setSavingPassword(true);
     try {
-      await changeUserPassword({ email: user.email, currentPassword, newPassword });
+      await changeUserPassword({ email: user.email, currentPassword, newPassword: password });
       setCurrentPassword('');
-      setNewPassword('');
+      setPassword('');
       setConfirmPassword('');
       setPasswordExpanded(false);
-      notify('Password changed', 'Your new password is ready to use.');
+      notify('Password updated', 'Your password has been changed.');
     } catch (error) {
-      notify('Could not change password', error.message);
+      notify('Could not update password', error.message);
     } finally {
-      setBusy('');
+      setSavingPassword(false);
     }
   };
 
   const handleSaveThreshold = async () => {
-    if (!newThreshold.trim()) {
-      notify('Threshold required', 'Enter the quantity to use for low-stock items.');
-      return;
-    }
-    const value = Number(newThreshold);
+    const value = Number(threshold);
     if (!Number.isInteger(value) || value < 0 || value > 999999) {
       notify('Invalid threshold', 'Enter a whole number between 0 and 999,999.');
       return;
     }
 
-    setBusy('threshold');
+    setSavingThreshold(true);
     try {
       await saveUserSettings(user.id, { lowStockThreshold: value });
       onThresholdChange(value);
-      notify('Threshold updated', `Items with fewer than ${value} units will be marked low stock.`);
+      setThresholdExpanded(false);
+      notify('Threshold saved', `Items with ${value} or fewer units will be marked low stock.`);
     } catch (error) {
       notify('Could not save threshold', error.message);
     } finally {
-      setBusy('');
-    }
-  };
-
-  const handleLogout = async () => {
-    if (await confirm('Log out?', 'Are you sure you want to log out?', 'Log out')) {
-      await onLogout();
+      setSavingThreshold(false);
     }
   };
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={styles.container}>
-        <View style={styles.header}>
-          <Pressable onPress={onBack} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Back to inventory">
-            <Ionicons name="arrow-back" size={22} color={theme.colors.primary} />
-          </Pressable>
-          <Text style={styles.title}>Settings</Text>
-          <View style={styles.headerSpacer} />
-        </View>
+        <Pressable style={styles.backButton} onPress={onBack} accessibilityRole="button">
+          <Ionicons name="chevron-back" size={20} color={theme.colors.primary} />
+          <Text style={styles.backText}>Profile</Text>
+        </Pressable>
+        <Text style={styles.title}>Settings</Text>
+        <Text style={styles.subtitle}>Manage account security and stock alerts.</Text>
 
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <View style={styles.accountCard}>
-            <View style={styles.accountTop}>
-              <View style={styles.avatar}><Text style={styles.avatarText}>{initials}</Text></View>
-              <View style={styles.accountInfo}>
-                <Text style={styles.accountName} numberOfLines={1}>{formatName(user.fullName) || 'Your account'}</Text>
-                <Text style={styles.email} numberOfLines={1}>{user.email}</Text>
-              </View>
-            </View>
-            <Pressable
-              style={styles.collapsibleTitle}
-              onPress={() => setNameExpanded((expanded) => !expanded)}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: nameExpanded }}
-            >
-              <Ionicons name="person-outline" size={20} color={theme.colors.primary} />
-              <Text style={styles.collapsibleText}>Change name</Text>
-              <Ionicons name={nameExpanded ? 'chevron-up' : 'chevron-down'} size={18} color={theme.colors.muted} />
-            </Pressable>
-            {nameExpanded ? (
-              <View style={styles.passwordFields}>
-                <FormInput label="Name" value={name} onChangeText={setName} placeholder="Your name" autoComplete="name" />
-                <AppButton label="Save name" onPress={handleSaveName} loading={busy === 'name'} disabled={!!busy} />
-              </View>
-            ) : null}
-          </View>
+          <SettingSection
+            icon="lock-closed-outline"
+            title="Change password"
+            expanded={passwordExpanded}
+            onPress={() => setPasswordExpanded((value) => !value)}
+          >
+            <FormInput
+              label="Current password"
+              value={currentPassword}
+              onChangeText={setCurrentPassword}
+              secureTextEntry
+              placeholder="Enter current password"
+            />
+            <FormInput
+              label="New password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              placeholder="At least 6 characters"
+            />
+            <FormInput
+              label="Confirm new password"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry
+              placeholder="Re-enter new password"
+            />
+            <AppButton label="Update password" onPress={handleChangePassword} loading={savingPassword} disabled={savingPassword} />
+          </SettingSection>
 
-          <View style={styles.section}>
-            <Pressable
-              style={styles.collapsibleTitle}
-              onPress={() => setPasswordExpanded((expanded) => !expanded)}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: passwordExpanded }}
-            >
-              <Ionicons name="lock-closed-outline" size={20} color={theme.colors.primary} />
-              <Text style={styles.collapsibleText}>Change password</Text>
-              <Ionicons name={passwordExpanded ? 'chevron-up' : 'chevron-down'} size={18} color={theme.colors.muted} />
-            </Pressable>
-            {passwordExpanded ? (
-              <View style={styles.passwordFields}>
-                <Text style={styles.helper}>Verify your current password before choosing a new one.</Text>
-                <FormInput label="Current password" value={currentPassword} onChangeText={setCurrentPassword} secureTextEntry autoComplete="current-password" textContentType="password" />
-                <FormInput label="New password" value={newPassword} onChangeText={setNewPassword} secureTextEntry autoComplete="new-password" textContentType="newPassword" />
-                <FormInput label="Confirm new password" value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry autoComplete="new-password" textContentType="newPassword" />
-                <AppButton label="Change password" onPress={handleChangePassword} loading={busy === 'password'} disabled={!!busy} />
-              </View>
-            ) : null}
-          </View>
-
-          <SettingsCard title="Default low-stock threshold" icon="alert-circle-outline">
-            <Text style={styles.helper}>This is the starting threshold for new items. Set or change each item's own alert in its item form.</Text>
+          <SettingSection
+            icon="alert-circle-outline"
+            title="Default low-stock threshold"
+            expanded={thresholdExpanded}
+            onPress={() => setThresholdExpanded((value) => !value)}
+            subtitle={`Currently ${threshold} units`}
+          >
+            <Text style={styles.helper}>
+              Items at or below this quantity will be marked as needing restock.
+            </Text>
             <FormInput
               label="Units"
-              value={newThreshold}
-              onChangeText={(value) => setNewThreshold(value.replace(/\D/g, ''))}
+              value={threshold}
+              onChangeText={setThreshold}
               keyboardType="number-pad"
-              placeholder="10"
+              placeholder="5"
             />
-            <AppButton label="Save threshold" onPress={handleSaveThreshold} loading={busy === 'threshold'} disabled={!!busy} />
-          </SettingsCard>
-
-          <SettingsCard title="About" icon="information-circle-outline">
-            <Text style={styles.aboutName}>InvenApp</Text>
-            <Text style={styles.helper}>Version {appConfig.expo.version}</Text>
-            <Text style={styles.helper}>Cloud inventory manager</Text>
-          </SettingsCard>
-
-          <View style={styles.section}>
-            <AppButton label="Log out" variant="outline" onPress={handleLogout} disabled={!!busy} />
-          </View>
+            <AppButton label="Save threshold" onPress={handleSaveThreshold} loading={savingThreshold} disabled={savingThreshold} />
+          </SettingSection>
         </ScrollView>
       </View>
     </KeyboardAvoidingView>
   );
 }
 
-function SettingsCard({ title, icon, children }) {
+function SettingSection({ icon, title, expanded, onPress, subtitle, children }) {
   return (
     <View style={styles.section}>
-      <View style={styles.sectionTitleRow}>
-        <Ionicons name={icon} size={20} color={theme.colors.primary} />
-        <Text style={styles.sectionTitle}>{title}</Text>
-      </View>
-      {children}
+      <Pressable
+        style={styles.sectionHeader}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+      >
+        <Ionicons name={icon} size={21} color={theme.colors.primary} />
+        <View style={styles.sectionInfo}>
+          <Text style={styles.sectionTitle}>{title}</Text>
+          {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
+        </View>
+        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={theme.colors.muted} />
+      </Pressable>
+      {expanded ? <View style={styles.expandedContent}>{children}</View> : null}
     </View>
   );
 }
 
+const topInset = Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 12 : 60;
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 12 : 60 },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: theme.spacing.xl, paddingBottom: theme.spacing.md },
-  backButton: { width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
-  title: { flex: 1, textAlign: 'center', fontSize: theme.fontSizes.xl, fontWeight: '700', color: theme.colors.text },
-  headerSpacer: { width: 44 },
-  content: { padding: theme.spacing.xl, paddingTop: 4, paddingBottom: 36 },
-  accountCard: { backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.lg, marginBottom: theme.spacing.md, elevation: 1 },
-  accountTop: { flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.lg },
-  avatar: { width: 54, height: 54, borderRadius: 27, backgroundColor: theme.colors.chip, alignItems: 'center', justifyContent: 'center', marginRight: theme.spacing.md },
-  avatarText: { color: theme.colors.primary, fontSize: theme.fontSizes.lg, fontWeight: '700' },
-  accountInfo: { flex: 1 },
-  accountName: { color: theme.colors.text, fontSize: theme.fontSizes.lg, fontWeight: '700', marginBottom: 3 },
-  email: { color: theme.colors.muted, fontSize: theme.fontSizes.sm },
+  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: topInset },
+  backButton: { flexDirection: 'row', alignItems: 'center', marginHorizontal: theme.spacing.xl, marginBottom: theme.spacing.md },
+  backText: { color: theme.colors.primary, fontSize: theme.fontSizes.sm, fontWeight: '600' },
+  title: { color: theme.colors.text, fontSize: theme.fontSizes.xl, fontWeight: '700', paddingHorizontal: theme.spacing.xl },
+  subtitle: { color: theme.colors.muted, fontSize: theme.fontSizes.sm, paddingHorizontal: theme.spacing.xl, marginTop: 4, marginBottom: theme.spacing.md },
+  content: { padding: theme.spacing.xl, paddingTop: 4, paddingBottom: theme.spacing.lg },
   section: { backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.lg, marginBottom: theme.spacing.md, elevation: 1 },
-  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.md },
-  collapsibleTitle: { flexDirection: 'row', alignItems: 'center', minHeight: 32, gap: theme.spacing.sm },
-  collapsibleText: { flex: 1, color: theme.colors.text, fontSize: theme.fontSizes.md, fontWeight: '700' },
-  passwordFields: { marginTop: theme.spacing.md },
-  sectionTitle: { color: theme.colors.text, fontSize: theme.fontSizes.lg, fontWeight: '700', marginLeft: theme.spacing.sm },
-  helper: { color: theme.colors.muted, fontSize: theme.fontSizes.sm, lineHeight: 19, marginBottom: theme.spacing.md },
-  aboutName: { color: theme.colors.text, fontWeight: '700', fontSize: theme.fontSizes.md, marginBottom: 4 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.md, minHeight: 36 },
+  sectionInfo: { flex: 1 },
+  sectionTitle: { color: theme.colors.text, fontSize: theme.fontSizes.md, fontWeight: '700' },
+  sectionSubtitle: { color: theme.colors.muted, fontSize: theme.fontSizes.xs, marginTop: 3 },
+  expandedContent: { marginTop: theme.spacing.md },
+  helper: { color: theme.colors.muted, fontSize: theme.fontSizes.sm, lineHeight: 20, marginBottom: theme.spacing.sm },
 });

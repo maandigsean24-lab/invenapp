@@ -2,13 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, ScrollView, StatusBar, StyleSheet, Text, View, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase, supabaseErrorMessage, supabaseRequest } from '../supabase/client';
+import ProfileAvatar from '../components/ProfileAvatar';
 import theme from '../theme';
 
 function formatDate(value) {
   return new Date(value).toLocaleString();
 }
 
-export default function HistoryScreen({ user, item, onBack }) {
+export default function HistoryScreen({ item, onBack }) {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -18,8 +19,8 @@ export default function HistoryScreen({ user, item, onBack }) {
 
     supabaseRequest(() => supabase
       .from('stock_logs')
-      .select('id, previous_quantity, new_quantity, change_amount, previous_price, new_price, created_at')
-      .eq('user_id', user.id)
+      .select('id, previous_quantity, new_quantity, change_amount, previous_price, new_price, actor_name, created_at')
+      .eq('user_id', item.user_id)
       .eq('item_id', item.id)
       .order('created_at', { ascending: false })
       .limit(100))
@@ -36,7 +37,7 @@ export default function HistoryScreen({ user, item, onBack }) {
       });
 
     return () => { active = false; };
-  }, [item.id, user.id]);
+  }, [item.id, item.user_id]);
 
   return (
     <View style={styles.container}>
@@ -92,6 +93,12 @@ export default function HistoryScreen({ user, item, onBack }) {
                   </Text>
                 </View>
               )}
+              <View style={styles.actorRow}>
+                <ProfileAvatar name={log.actor_name} size={24} />
+                <Text style={styles.actorText}>
+                  Updated by <Text style={styles.actorName}>{log.actor_name || 'user not recorded'}</Text>
+                </Text>
+              </View>
             </View>
           ))}
         </ScrollView>
@@ -121,5 +128,8 @@ const styles = StyleSheet.create({
   quantities: { color: theme.colors.text, fontSize: theme.fontSizes.md },
   priceChange: { borderTopWidth: 1, borderTopColor: theme.colors.border, marginTop: theme.spacing.sm, paddingTop: theme.spacing.sm, gap: 4 },
   priceLabel: { color: theme.colors.muted, fontSize: theme.fontSizes.xs },
+  actorRow: { flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm, marginTop: theme.spacing.md },
+  actorText: { color: theme.colors.muted, fontSize: theme.fontSizes.sm },
+  actorName: { color: theme.colors.text, fontWeight: '700' },
   message: { color: theme.colors.muted, textAlign: 'center', padding: theme.spacing.xl, lineHeight: 22 },
 });

@@ -15,11 +15,19 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import ItemCard from '../components/ItemCard';
 import ItemFormModal from '../components/ItemFormModal';
+import BottomNavigation from '../components/BottomNavigation';
+import NotificationsScreen from '../components/NotificationsScreen';
+import ProfileMenuScreen from './ProfileMenuScreen';
 import SettingsScreen from './SettingsScreen';
+import SharedInventoriesScreen from './SharedInventoriesScreen';
+import SharedInventoryScreen from './SharedInventoryScreen';
 import HistoryScreen from './HistoryScreen';
+import ProfileAvatar from '../components/ProfileAvatar';
 import useInventory from '../hooks/useInventory';
+import useNotifications from '../hooks/useNotifications';
 import { confirm, notify } from '../utils/dialog';
-import { formatMoney, formatName, LOW_STOCK_THRESHOLD, stockStatus } from '../utils/format';
+import { formatMoney, LOW_STOCK_THRESHOLD, stockStatus } from '../utils/format';
+import { markNotificationRead } from '../utils/notifications';
 import { readUserSettings } from '../utils/settings';
 import theme from '../theme';
 
@@ -30,14 +38,39 @@ const SORTS = [
 ];
 
 export default function HomeScreen({ user, onLogout, onUserUpdate }) {
-  const { items, loading, refreshing, storageError, refreshInventory, addItem, updateItem, adjustQuantity, removeItem } = useInventory(user.id);
+  const {
+    items,
+    inventories,
+    pendingInvitationCount,
+    selectedInventoryId,
+    selectInventory,
+    loading,
+    refreshing,
+    storageError,
+    refreshInventory,
+    addItem,
+    updateItem,
+    adjustQuantity,
+    removeItem,
+  } = useInventory(user.id);
+  const {
+    notifications,
+    unreadCount,
+    loading: notificationsLoading,
+    error: notificationsError,
+    refreshNotifications,
+  } = useNotifications(user.id);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('All');
   const [sortIndex, setSortIndex] = useState(0);
   const [formVisible, setFormVisible] = useState(false);
+  const [pendingAddAfterLoad, setPendingAddAfterLoad] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [sharedInventoryVisible, setSharedInventoryVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState('home');
+  const [sharedPickerVisible, setSharedPickerVisible] = useState(false);
   const [historyItem, setHistoryItem] = useState(null);
   const [threshold, setThreshold] = useState(LOW_STOCK_THRESHOLD);
   const [thresholdLoaded, setThresholdLoaded] = useState(false);
@@ -97,21 +130,20 @@ export default function HomeScreen({ user, onLogout, onUserUpdate }) {
     [items, threshold]
   );
 
-  const userInitials = useMemo(
-    () => formatName(user.fullName || user.email)
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part.charAt(0))
-      .join('')
-      .toUpperCase(),
-    [user.email, user.fullName]
-  );
-
   const openAdd = () => {
     setEditingItem(null);
     setFormVisible(true);
   };
+
+  useEffect(() => {
+    if (!pendingAddAfterLoad || loading || !thresholdLoaded) return;
+    setPendingAddAfterLoad(false);
+    if (storageError) {
+      notify('Could not open add item', storageError);
+      return;
+    }
+    openAdd();
+  }, [pendingAddAfterLoad, loading, thresholdLoaded, storageError]);
 
   const openEdit = (item) => {
     setEditingItem(item);
@@ -159,15 +191,115 @@ export default function HomeScreen({ user, onLogout, onUserUpdate }) {
     }
   };
 
+  const handleNotificationSelect = async (notification, openInvitations = false) => {
+    try {
+      await markNotificationRead(notification.id, user.id);
+      await refreshNotifications();
+      if (openInvitations) {
+        setPendingAddAfterLoad(false);
+        setActiveTab('profile');
+        setSharedInventoryVisible(true);
+      }
+    } catch (error) {
+      notify('Could not update notification', error.message);
+    }
+  };
+
+  const handleReturnToPersonalInventory = () => {
+    setPendingAddAfterLoad(false);
+    setSettingsVisible(false);
+    selectInventory(user.id);
+    setActiveTab('home');
+    setSharedPickerVisible(false);
+    setCategory('All');
+    setSearch('');
+  };
+
+  const handleSelectSharedInventory = (inventory) => {
+    setPendingAddAfterLoad(false);
+    selectInventory(inventory.id);
+    setCategory('All');
+    setSearch('');
+    setSharedPickerVisible(false);
+    setActiveTab('shared');
+  };
+
+  const openSharedManagement = () => {
+    setPendingAddAfterLoad(false);
+    setActiveTab('profile');
+    setSharedInventoryVisible(true);
+  };
+
+  const handleAddFromNavigation = () => {
+    setSettingsVisible(false);
+    const viewingInventory = activeTab === 'home' || (activeTab === 'shared' && !sharedPickerVisible);
+    if (!viewingInventory) {
+      setSharedPickerVisible(false);
+      setCategory('All');
+      setSearch('');
+      setActiveTab('home');
+      if (selectedInventoryId !== user.id) {
+        selectInventory(user.id);
+        setPendingAddAfterLoad(true);
+        return;
+      }
+    }
+    setActiveTab(selectedInventoryId === user.id ? 'home' : 'shared');
+    setSharedPickerVisible(false);
+    if (loading || !thresholdLoaded) setPendingAddAfterLoad(true);
+    else openAdd();
+  };
+
+  const returnToSelectedInventory = () => {
+    setSharedPickerVisible(false);
+    setActiveTab(selectedInventoryId === user.id ? 'home' : 'shared');
+  };
+
+  const currentInventory = inventories.find((inventory) => inventory.id === selectedInventoryId);
+
   const listHeader = (
     <View>
       {storageError ? <Text style={styles.storageError}>{storageError}</Text> : null}
       {settingsError ? <Text style={styles.storageError}>{settingsError} Low-stock counts are using the default threshold until settings can be loaded.</Text> : null}
+      {pendingInvitationCount > 0 ? (
+        <Pressable
+          style={styles.invitationBanner}
+          onPress={openSharedManagement}
+          accessibilityRole="button"
+          accessibilityLabel={`${pendingInvitationCount} inventory invitation${pendingInvitationCount === 1 ? '' : 's'} pending. Review invitations.`}
+        >
+          <Ionicons name="mail-unread-outline" size={19} color={theme.colors.primary} />
+          <Text style={styles.invitationText}>
+            {pendingInvitationCount === 1 ? 'You have an invitation' : `You have ${pendingInvitationCount} invitations`}
+            {' · Review invitations'}
+          </Text>
+        </Pressable>
+      ) : null}
+      {selectedInventoryId !== user.id && currentInventory ? (
+        <View style={styles.sharedInventoryBanner}>
+          <ProfileAvatar name={currentInventory.ownerName} size={38} />
+          <View style={styles.sharedInventoryInfo}>
+            <Text style={styles.sharedInventoryName} numberOfLines={1}>{currentInventory.ownerName}’s shared stock</Text>
+            <Text style={styles.sharedInventoryHint}>Live updates are on</Text>
+          </View>
+          <Pressable
+            style={styles.switchInventoryButton}
+            onPress={() => {
+              setActiveTab('shared');
+              setSharedPickerVisible(true);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Choose another shared inventory"
+          >
+            <Text style={styles.switchInventoryText}>Switch</Text>
+          </Pressable>
+        </View>
+      ) : null}
       <View style={styles.statsRow}>
-        <StatCard label="Items" value={stats.count} />
-        <StatCard label="Units" value={stats.units} />
-        <StatCard label="Needs restock" value={stats.attention} warn={stats.attention > 0} />
-        <StatCard label="Value" value={formatMoney(stats.value)} />
+        <StatCard label="Items" value={stats.count} icon="cube-outline" />
+        <StatCard label="Units" value={stats.units} icon="layers-outline" />
+        <StatCard label="Needs restock" value={stats.attention} icon="alert-circle-outline" warn={stats.attention > 0} />
+        <StatCard label="Value" value={formatMoney(stats.value)} icon="cash-outline" />
       </View>
 
       <View style={styles.searchBox}>
@@ -213,105 +345,195 @@ export default function HomeScreen({ user, onLogout, onUserUpdate }) {
     </View>
   );
 
-  if (settingsVisible) {
+  const navigation = (
+    <BottomNavigation
+      activeTab={activeTab}
+      userName={user.fullName || user.email}
+      unreadCount={unreadCount}
+      onHome={handleReturnToPersonalInventory}
+      onShared={() => {
+        setPendingAddAfterLoad(false);
+        setSettingsVisible(false);
+        setActiveTab('shared');
+        setSharedPickerVisible(true);
+      }}
+      onAdd={handleAddFromNavigation}
+      onNotifications={() => {
+        setPendingAddAfterLoad(false);
+        setSettingsVisible(false);
+        setActiveTab('notifications');
+      }}
+      onProfile={() => {
+        setPendingAddAfterLoad(false);
+        setSettingsVisible(false);
+        setActiveTab('profile');
+      }}
+    />
+  );
+
+  if (sharedInventoryVisible) {
     return (
-      <SettingsScreen
+      <SharedInventoryScreen
         user={user}
-        threshold={threshold}
-        onBack={() => setSettingsVisible(false)}
-        onUserUpdate={onUserUpdate}
-        onThresholdChange={(value) => {
-          setThreshold(value);
-          setSettingsError('');
+        onBack={() => setSharedInventoryVisible(false)}
+        onLeaveInventory={(ownerId) => {
+          if (selectedInventoryId === ownerId) {
+            handleReturnToPersonalInventory();
+            setSharedInventoryVisible(false);
+          }
         }}
-        onLogout={onLogout}
       />
     );
   }
 
+  if (settingsVisible) {
+    return (
+      <View style={styles.appContainer}>
+        <View style={styles.flex}>
+          <SettingsScreen
+            user={user}
+            threshold={threshold}
+            onBack={() => setSettingsVisible(false)}
+            onThresholdChange={(value) => {
+              setThreshold(value);
+              setSettingsError('');
+            }}
+          />
+        </View>
+        {navigation}
+      </View>
+    );
+  }
+
   if (historyItem) {
-    return <HistoryScreen user={user} item={historyItem} onBack={() => setHistoryItem(null)} />;
+    return <HistoryScreen item={historyItem} onBack={() => setHistoryItem(null)} />;
+  }
+
+  if (activeTab === 'profile') {
+    return (
+      <View style={styles.appContainer}>
+        <View style={styles.flex}>
+          <ProfileMenuScreen
+            user={user}
+            onUserUpdate={onUserUpdate}
+            onOpenSettings={() => setSettingsVisible(true)}
+            onOpenSharedInventory={() => setSharedInventoryVisible(true)}
+            onLogout={onLogout}
+          />
+        </View>
+        {navigation}
+      </View>
+    );
+  }
+
+  if (activeTab === 'notifications') {
+    return (
+      <View style={styles.appContainer}>
+        <View style={styles.flex}>
+          <NotificationsScreen
+            notifications={notifications}
+            loading={notificationsLoading}
+            error={notificationsError}
+            onBack={returnToSelectedInventory}
+            onSelectNotification={(notification) => handleNotificationSelect(notification)}
+            onOpenInvitation={(notification) => handleNotificationSelect(notification, true)}
+          />
+        </View>
+        {navigation}
+      </View>
+    );
+  }
+
+  if (activeTab === 'shared' && sharedPickerVisible) {
+    return (
+      <View style={styles.appContainer}>
+        <View style={styles.flex}>
+          <SharedInventoriesScreen
+            inventories={inventories}
+            pendingInvitationCount={pendingInvitationCount}
+            onSelectInventory={handleSelectSharedInventory}
+            onReviewInvitations={() => setActiveTab('notifications')}
+            onManageSharing={openSharedManagement}
+          />
+        </View>
+        {navigation}
+      </View>
+    );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.flex}>
-          <View style={styles.welcomeRow}>
-            <View style={styles.avatar} accessible accessibilityLabel={`Profile initials ${userInitials}`}>
-              <Text style={styles.avatarText}>{userInitials}</Text>
-            </View>
-            <Text style={styles.welcome} numberOfLines={1}>{formatName(user.fullName) || user.email}</Text>
-          </View>
+    <View style={styles.appContainer}>
+      <View style={styles.flex}>
+        <View style={styles.container}>
+          <View style={styles.header}>
           <Image
             source={require('../assets/brand-logo.png')}
             style={styles.brandLogo}
             resizeMode="contain"
             accessibilityLabel="InvenApp logo"
           />
+          </View>
+
+          {loading || !thresholdLoaded ? (
+            <ActivityIndicator style={styles.loader} size="large" color={theme.colors.primary} />
+          ) : (
+            <FlatList
+              data={visibleItems}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.listContent}
+              ListHeaderComponent={listHeader}
+              keyboardShouldPersistTaps="handled"
+              onRefresh={handleRefresh}
+              refreshing={refreshing}
+              ListEmptyComponent={
+                storageError && items.length === 0 ? (
+                  <Text style={styles.emptyText}>Inventory could not be loaded. Pull down to retry.</Text>
+                ) : items.length === 0 ? (
+                  <View style={styles.empty}>
+                    <Image source={require('../assets/logo-mark.png')} style={styles.emptyIcon} resizeMode="contain" />
+                    <Text style={styles.emptyText}>No items yet. Tap Add to create one.</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.emptyText}>No inventory items match your search.</Text>
+                )
+              }
+              renderItem={({ item }) => (
+                <ItemCard item={item} threshold={threshold} onAdjust={handleAdjust} onEdit={openEdit} onDelete={handleDelete} onHistory={setHistoryItem} />
+              )}
+            />
+          )}
+          {successMessage ? (
+            <View style={styles.successBanner}>
+              <Text style={styles.successText}>{successMessage}</Text>
+            </View>
+          ) : null}
+
+          <ItemFormModal
+            visible={formVisible}
+            item={editingItem}
+            categories={categories}
+            defaultThreshold={threshold}
+            onSave={handleSave}
+            onClose={() => {
+              setFormVisible(false);
+              setEditingItem(null);
+            }}
+          />
         </View>
-        <Pressable onPress={() => setSettingsVisible(true)} style={styles.headerButton} accessibilityRole="button" accessibilityLabel="Open settings">
-          <Ionicons name="settings-outline" size={23} color={theme.colors.primary} />
-        </Pressable>
       </View>
 
-      {loading || !thresholdLoaded ? (
-        <ActivityIndicator style={styles.loader} size="large" color={theme.colors.primary} />
-      ) : (
-        <FlatList
-          data={visibleItems}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          ListHeaderComponent={listHeader}
-          keyboardShouldPersistTaps="handled"
-          onRefresh={handleRefresh}
-          refreshing={refreshing}
-          ListEmptyComponent={
-            storageError && items.length === 0 ? (
-              <Text style={styles.emptyText}>Inventory could not be loaded. Pull down to retry.</Text>
-            ) : items.length === 0 ? (
-              <View style={styles.empty}>
-                <Image source={require('../assets/logo-mark.png')} style={styles.emptyIcon} resizeMode="contain" />
-                <Text style={styles.emptyText}>No items yet. Tap + to add one.</Text>
-              </View>
-            ) : (
-              <Text style={styles.emptyText}>No inventory items match your search.</Text>
-            )
-          }
-          renderItem={({ item }) => (
-            <ItemCard item={item} threshold={threshold} onAdjust={handleAdjust} onEdit={openEdit} onDelete={handleDelete} onHistory={setHistoryItem} />
-          )}
-        />
-      )}
-      {successMessage ? (
-        <View style={styles.successBanner}>
-          <Text style={styles.successText}>{successMessage}</Text>
-        </View>
-      ) : null}
-
-      <Pressable style={styles.fab} onPress={openAdd} accessibilityLabel="Add item">
-        <Ionicons name="add" size={30} color="#fff" />
-      </Pressable>
-
-      <ItemFormModal
-        visible={formVisible}
-        item={editingItem}
-        categories={categories}
-        defaultThreshold={threshold}
-        onSave={handleSave}
-        onClose={() => {
-          setFormVisible(false);
-          setEditingItem(null);
-        }}
-      />
+      {navigation}
     </View>
   );
 }
 
-function StatCard({ label, value, warn }) {
+function StatCard({ label, value, icon, warn }) {
   return (
     <View style={styles.statCard}>
-      <Text style={styles.statLabel}>{label}</Text>
+      <View style={styles.statHeading}>
+        <Ionicons name={icon} size={17} color={warn ? theme.colors.danger : theme.colors.primary} />
+        <Text style={styles.statLabel}>{label}</Text>
+      </View>
       <Text style={[styles.statValue, warn && styles.statWarn]} numberOfLines={1} adjustsFontSizeToFit>
         {value}
       </Text>
@@ -323,24 +545,12 @@ const topInset = Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 1
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  appContainer: { flex: 1, backgroundColor: theme.colors.background },
   container: { flex: 1, backgroundColor: theme.colors.background, paddingHorizontal: theme.spacing.xl, paddingTop: topInset },
-  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  welcomeRow: { flexDirection: 'row', alignItems: 'center', minWidth: 0 },
-  avatar: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: theme.colors.chip,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: theme.spacing.sm,
-  },
-  avatarText: { color: theme.colors.primary, fontSize: theme.fontSizes.xs, fontWeight: '700' },
-  welcome: { fontSize: theme.fontSizes.md, fontWeight: '600', color: theme.colors.muted },
+  header: { alignItems: 'flex-start', marginBottom: 12 },
   brandLogo: { width: 156, height: 36, alignSelf: 'flex-start', marginTop: 3 },
-  headerButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginLeft: 8 },
   loader: { marginTop: 40 },
-  listContent: { paddingBottom: 128 },
+  listContent: { paddingBottom: 24 },
   statsRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: theme.spacing.sm },
   statCard: {
     width: '48%',
@@ -354,7 +564,8 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
   },
-  statLabel: { color: theme.colors.muted, fontSize: theme.fontSizes.sm, marginBottom: 6 },
+  statHeading: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  statLabel: { color: theme.colors.muted, fontSize: theme.fontSizes.sm },
   statValue: { color: theme.colors.text, fontSize: theme.fontSizes.xl, fontWeight: '700' },
   statWarn: { color: theme.colors.danger },
   searchBox: {
@@ -373,6 +584,14 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: theme.colors.primary },
   chipText: { color: theme.colors.label, fontWeight: '600', fontSize: 13 },
   chipTextActive: { color: '#fff' },
+  sharedInventoryBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.md, marginBottom: theme.spacing.md, elevation: 1 },
+  sharedInventoryInfo: { flex: 1, marginLeft: theme.spacing.md },
+  sharedInventoryName: { color: theme.colors.text, fontSize: theme.fontSizes.sm, fontWeight: '700' },
+  sharedInventoryHint: { color: theme.colors.muted, fontSize: theme.fontSizes.xs, marginTop: 3 },
+  switchInventoryButton: { paddingHorizontal: theme.spacing.sm, paddingVertical: theme.spacing.xs },
+  switchInventoryText: { color: theme.colors.primary, fontSize: theme.fontSizes.sm, fontWeight: '700' },
+  invitationBanner: { flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.chip, borderRadius: theme.borderRadius.md, padding: theme.spacing.md, marginBottom: theme.spacing.md, gap: theme.spacing.sm },
+  invitationText: { flex: 1, color: theme.colors.primary, fontSize: theme.fontSizes.sm, fontWeight: '600' },
   sortRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   resultCount: { color: theme.colors.muted, fontSize: 13 },
   sortButton: { flexDirection: 'row', alignItems: 'center' },
@@ -383,20 +602,4 @@ const styles = StyleSheet.create({
   storageError: { color: theme.colors.danger, backgroundColor: theme.colors.dangerBackground, borderRadius: theme.borderRadius.md, padding: theme.spacing.md, marginBottom: theme.spacing.md },
   successBanner: { position: 'absolute', top: topInset + 54, alignSelf: 'center', backgroundColor: theme.colors.success, borderRadius: theme.borderRadius.md, paddingHorizontal: 16, paddingVertical: 10 },
   successText: { color: '#fff', fontSize: theme.fontSizes.md, fontWeight: '600' },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 20,
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: theme.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-  },
 });
