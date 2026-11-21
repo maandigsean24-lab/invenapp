@@ -2,6 +2,7 @@
   "expo": {
     "name": "InvenApp",
     "slug": "invenapp",
+    "scheme": "invenapp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -28,7 +29,13 @@
     },
     "plugins": [
       "expo-status-bar",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow InvenApp to select photos for your inventory items."
+        }
+      ]
     ]
   }
 }

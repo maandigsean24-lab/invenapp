@@ -9,7 +9,7 @@ import theme from '../theme';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export default function LoginScreen({ onSwitchToRegister, onLoginSuccess }) {
+export default function LoginScreen({ onSwitchToRegister, onSwitchToForgotPassword, onLoginSuccess }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -75,11 +75,14 @@ export default function LoginScreen({ onSwitchToRegister, onLoginSuccess }) {
             </Pressable>
           }
         />
+        <Pressable onPress={onSwitchToForgotPassword} style={styles.forgotLink} accessibilityRole="button">
+          <Text style={styles.forgotText}>Forgot password?</Text>
+        </Pressable>
         {serverError ? <Text style={styles.serverError}>{serverError}</Text> : null}
         <AppButton label="Log in" onPress={handleLogin} loading={busy} style={styles.submit} />
 
         <Text style={styles.link} onPress={onSwitchToRegister}>
-          Don't have an account? Register
+          Don't have an account? Sign up
         </Text>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -94,6 +97,8 @@ const styles = StyleSheet.create({
   title: { fontSize: theme.fontSizes.xl, fontWeight: 'bold', textAlign: 'center', color: theme.colors.text, marginBottom: theme.spacing.lg },
   eye: { padding: theme.spacing.md },
   serverError: { color: theme.colors.danger, textAlign: 'center', marginBottom: theme.spacing.md },
+  forgotLink: { alignSelf: 'flex-end', marginTop: -8, marginBottom: 8, paddingVertical: 4, paddingLeft: 12 },
+  forgotText: { color: theme.colors.primary, fontSize: theme.fontSizes.sm, fontWeight: '600' },
   submit: { marginTop: theme.spacing.sm },
   link: { color: theme.colors.primary, textAlign: 'center', marginTop: theme.spacing.lg },
 });

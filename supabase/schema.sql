@@ -17,6 +17,7 @@ create table if not exists public.inventory_items (
   price numeric(12, 2) not null check (price >= 0),
   low_stock_threshold integer not null default 10
     check (low_stock_threshold between 0 and 999999),
+  image_path text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

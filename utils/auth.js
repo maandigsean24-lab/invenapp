@@ -1,6 +1,74 @@
+import { Linking, Platform } from 'react-native';
+import * as ExpoLinking from 'expo-linking';
 import { supabase, supabaseErrorMessage, supabaseRequest } from '../supabase/client';
 
 export const normalizeEmail = (email) => email.trim().toLowerCase();
+
+export function getPasswordRecoveryRedirectUrl() {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    return `${window.location.origin}/reset-password`;
+  }
+  return ExpoLinking.createURL('reset-password');
+}
+
+export async function requestPasswordReset(email) {
+  const { error } = await supabaseRequest(() => supabase.auth.resetPasswordForEmail(
+    normalizeEmail(email),
+    { redirectTo: getPasswordRecoveryRedirectUrl() }
+  ));
+  if (error) throw new Error(supabaseErrorMessage(error));
+}
+
+export async function consumePasswordRecoveryLink(url) {
+  if (!url) return false;
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return false;
+  }
+
+  const hashParams = new URLSearchParams(parsedUrl.hash.replace(/^#/, ''));
+  const params = new URLSearchParams(parsedUrl.search);
+  hashParams.forEach((value, key) => params.set(key, value));
+
+  const isRecovery = params.get('type') === 'recovery'
+    || parsedUrl.pathname.endsWith('/reset-password')
+    || parsedUrl.pathname.endsWith('reset-password');
+  if (!isRecovery) return false;
+
+  const code = params.get('code');
+  if (code) {
+    const { error } = await supabaseRequest(() => supabase.auth.exchangeCodeForSession(code));
+    if (error) throw new Error(supabaseErrorMessage(error));
+    return true;
+  }
+
+  const accessToken = params.get('access_token');
+  const refreshToken = params.get('refresh_token');
+  if (accessToken && refreshToken) {
+    const { error } = await supabaseRequest(() => supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    }));
+    if (error) throw new Error(supabaseErrorMessage(error));
+    return true;
+  }
+
+  const linkError = params.get('error_description') || params.get('error');
+  if (linkError) throw new Error(linkError.replace(/\+/g, ' '));
+  throw new Error('This password reset link is invalid or has expired. Request a new one.');
+}
+
+export async function setRecoveredPassword(password) {
+  const { data, error } = await supabaseRequest(() => supabase.auth.updateUser({ password }));
+  if (error) throw new Error(supabaseErrorMessage(error));
+
+  const { error: signOutError } = await supabaseRequest(() => supabase.auth.signOut({ scope: 'local' }));
+  if (signOutError) throw new Error(`Password changed, but unable to finish signing out: ${supabaseErrorMessage(signOutError)}`);
+  return data.user;
+}
 
 function accountFromAuthUser(authUser, profile) {
   return {

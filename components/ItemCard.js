@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Image, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatMoney, stockStatus } from '../utils/format';
 import theme from '../theme';
@@ -23,6 +23,13 @@ export default function ItemCard({ item, threshold, onAdjust, onEdit, onDelete, 
         accessibilityState={{ expanded }}
         accessibilityLabel={`${item.name}, quantity ${item.quantity}${badge ? `, ${badge.text}` : ''}. ${expanded ? 'Collapse' : 'Expand'} details`}
       >
+        {item.photoUrl ? (
+          <Image source={{ uri: item.photoUrl }} style={styles.photo} accessibilityLabel={`Photo of ${item.name}`} />
+        ) : (
+          <View style={styles.photoPlaceholder} accessibilityLabel={`No photo for ${item.name}`}>
+            <Ionicons name="image-outline" size={22} color={theme.colors.muted} />
+          </View>
+        )}
         <View style={styles.summaryInfo}>
           <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
           <Text style={styles.category} numberOfLines={1}>{item.category}</Text>
@@ -107,6 +114,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   summary: { flexDirection: 'row', alignItems: 'center', minHeight: 76, paddingHorizontal: 14, paddingVertical: 11 },
+  photo: { width: 58, height: 58, borderRadius: theme.borderRadius.md, backgroundColor: theme.colors.background, marginRight: 12 },
+  photoPlaceholder: { width: 58, height: 58, borderRadius: theme.borderRadius.md, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   summaryInfo: { flex: 1, minWidth: 0, paddingRight: theme.spacing.sm },
   name: { fontSize: 16, fontWeight: '700', color: theme.colors.textStrong, marginBottom: 2 },
   category: { color: theme.colors.muted, fontSize: theme.fontSizes.xs, marginBottom: 5 },
